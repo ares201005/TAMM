@@ -68,10 +68,6 @@ endif()
 
 list(APPEND TAMM_DEPENDENCIES GlobalArrays) #BLAS LAPACK
 
-if(TAMM_ENABLE_PYTHON)
-  list(APPEND TAMM_DEPENDENCIES pybind11)
-endif()
-
 # Libint2, GauXC, FCI
 if(DEFINED MODULES AND (NOT "${MODULES}" STREQUAL ""))
   list(TRANSFORM MODULES TOUPPER)
@@ -98,3 +94,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 build_cmsb_module(${CMAKE_CURRENT_LIST_DIR})
+
+if(TAMM_ENABLE_PYTHON)
+  add_subdirectory(python)
+endif()
