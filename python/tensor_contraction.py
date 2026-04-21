@@ -1,55 +1,47 @@
-import argparse
-import os
-
 import numpy as np
 import pytamm
+import time
 
 
 def main() -> None:
 
-    with pytamm.Context(
-        distribution=pytamm.DistributionKind.NW,
-        memory_manager=pytamm.MemoryManagerKind.GA,
-    ) as ctx:
+    with pytamm.TammContext() as ctx:
 
-        ni, nj, nk, nm = 200, 100, 80, 40
-        tile = 20
+        ni, nj, nk, nm = 500, 200, 400, 100
+        tile = 50
+        nsteps = 5
 
-        i = ctx.tiled_index_space(ni, tile)
-        j = ctx.tiled_index_space(nj, tile)
-        k = ctx.tiled_index_space(nk, tile)
-        m = ctx.tiled_index_space(nm, tile)
+        a = ctx.zeros((ni, nj, nk), tile=tile)  # (ni, nj, nk)
+        b = ctx.zeros((nk, nm), tile=tile)      # (nk, nm)
 
-        a = ctx.tensor([i, j, k])  # (ni, nj, nk)
-        b = ctx.tensor([k, m])     # (nk, nm)
-        c = ctx.tensor([i, j, m])  # (ni, nj, nm)
-
-        ctx.allocate(a, b, c)
-
-        a_np = np.random.rand(ni, nj, nk)
-        b_np = np.random.rand(nk, nm)
+        # In MPI runs, all ranks must load identical NumPy data before
+        # from_numpy; otherwise different ranks race to write different values.
+        rng = np.random.default_rng(12345)
+        a_np = rng.random((ni, nj, nk))
+        b_np = rng.random((nk, nm))
 
         ctx.from_numpy(a, a_np)
         ctx.from_numpy(b, b_np)
-        ctx.fill(c, 0.0)
+        c = ctx.einsum("ijk,km->ijm", a, b)
+        t0 = time.time()
+        for _ in range(nsteps):
+            # c(i,j,m) = a(i,j,k) * b(k,m)
+            ctx.einsum("ijk,km->ijm", a, b, out=c)
+        wt1 = time.time() - t0
 
-        # c(i,j,m) = a(i,j,k) * b(k,m)
-        ctx.contract(
-            c,
-            ["i", "j", "m"],
-            a,
-            ["i", "j", "k"],
-            b,
-            ["k", "m"],
-        )
+        t0 = time.time()
+        for _ in range(nsteps):
+            c_ref = np.einsum("ijk,km->ijm", a_np, b_np)
+        wt = time.time() - t0
 
         c_tamm = ctx.to_numpy(c)
-        c_ref = np.einsum("ijk,km->ijm", a_np, b_np)
-
         err = np.linalg.norm(c_tamm - c_ref)
-        # if ctx.rank() == 0:
-        print("||C_tamm - C_ref|| =", err)
-        print("norm(C_tamm) =", ctx.norm(c))
+        c_norm = ctx.norm(c)
+        if ctx.rank() == 0:
+            print("wall time (numpy) is:", wt)
+            print("wall time (tamm)  is:", wt1)
+            print("norm(C_tamm)       = ", c_norm)
+            print("||C_tamm - C_ref|| = ", err)
 
         ctx.deallocate(a, b, c)
 

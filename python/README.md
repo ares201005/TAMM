@@ -59,6 +59,22 @@ Typical flow:
 7. Read results with `to_numpy`.
 8. Deallocate tensors and close context.
 
+Convenience API (numpy-style):
+
+- `pytamm.TammContext` is an alias of `Context` with defaults:
+  - `distribution=DistributionKind.NW`
+  - `memory_manager=MemoryManagerKind.GA`
+- `ctx.einsum("ijk,km->ijm", a, b, out=None)` is available as an alias to
+  `contract_einsum`, with automatic output tensor creation when `out` is omitted.
+- `ctx.zeros(shape, tile=None)` and `ctx.ones(shape, tile=None)` create, allocate,
+  and initialize tensors.
+  - `shape` can be a tuple/list of dimensions (for example `(200, 100, 80)`), or
+    a list of `TiledIndexSpace` objects.
+  - If `tile` is omitted, tile sizes are auto-selected per dimension.
+- Module-level helpers mirror numpy style:
+  - `pytamm.zeros(ctx, shape, tile=None)`
+  - `pytamm.ones(ctx, shape, tile=None)`
+
 ## Notes
 
 - This first wrapper currently targets `double` tensors.

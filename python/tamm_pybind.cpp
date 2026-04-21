@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -205,6 +206,68 @@ parse_einsum_expression(const std::string& expression) {
   return {parse_index_term(lhs_a), parse_index_term(lhs_b), parse_index_term(rhs)};
 }
 
+std::size_t choose_auto_tile_size(std::size_t size) {
+  if(size == 0) throw std::invalid_argument("size must be > 0");
+
+  const std::size_t cap = std::min<std::size_t>(size, 64);
+  for(std::size_t t = cap; t > 1; --t) {
+    if(size % t == 0) return t;
+  }
+  return 1;
+}
+
+std::vector<std::size_t> parse_shape(py::handle shape_obj) {
+  if(py::isinstance<py::int_>(shape_obj)) {
+    return {shape_obj.cast<std::size_t>()};
+  }
+
+  if(!py::isinstance<py::sequence>(shape_obj)) {
+    throw std::invalid_argument("shape must be an int or a sequence of ints.");
+  }
+
+  std::vector<std::size_t> shape;
+  for(const auto& dim: py::reinterpret_borrow<py::sequence>(shape_obj)) {
+    shape.push_back(py::cast<std::size_t>(dim));
+  }
+  if(shape.empty()) throw std::invalid_argument("shape cannot be empty.");
+  return shape;
+}
+
+std::vector<std::size_t> parse_tiles(py::handle tile_obj, const std::vector<std::size_t>& shape) {
+  if(tile_obj.is_none()) {
+    std::vector<std::size_t> tiles;
+    tiles.reserve(shape.size());
+    for(const auto dim: shape) tiles.push_back(choose_auto_tile_size(dim));
+    return tiles;
+  }
+
+  if(py::isinstance<py::int_>(tile_obj)) {
+    const auto t = py::cast<std::size_t>(tile_obj);
+    if(t == 0) throw std::invalid_argument("tile must be > 0.");
+    return std::vector<std::size_t>(shape.size(), t);
+  }
+
+  if(!py::isinstance<py::sequence>(tile_obj)) {
+    throw std::invalid_argument("tile must be None, an int, or a sequence of ints.");
+  }
+
+  std::vector<std::size_t> tiles;
+  for(const auto& t: py::reinterpret_borrow<py::sequence>(tile_obj)) {
+    const auto tv = py::cast<std::size_t>(t);
+    if(tv == 0) throw std::invalid_argument("tile values must be > 0.");
+    tiles.push_back(tv);
+  }
+  if(tiles.size() != shape.size()) {
+    throw std::invalid_argument("tile sequence length must match shape rank.");
+  }
+  return tiles;
+}
+
+bool same_index_space(const tamm::TiledIndexSpace& lhs, const tamm::TiledIndexSpace& rhs) {
+  return lhs.index_space().num_indices() == rhs.index_space().num_indices() &&
+         lhs.input_tile_size() == rhs.input_tile_size();
+}
+
 class PyTiledIndexSpace {
 public:
   explicit PyTiledIndexSpace(tamm::TiledIndexSpace tis): tis_{std::move(tis)} {}
@@ -291,7 +354,8 @@ public:
   void barrier() const { ec().pg().barrier(); }
 
   PyTiledIndexSpace tiled_index_space(std::size_t size, std::size_t tile_size = 0) const {
-    const auto effective_tile = (tile_size == 0) ? std::max<std::size_t>(size, 1) : tile_size;
+    const auto effective_tile =
+      (tile_size == 0) ? choose_auto_tile_size(size) : tile_size;
     const auto is             = tamm::IndexSpace{tamm::range(to_index(size, "size"))};
     return PyTiledIndexSpace{
       tamm::TiledIndexSpace{is, to_tile(effective_tile, "tile_size")}
@@ -352,6 +416,35 @@ public:
                        bool add = false) const {
     auto [lhs_labels, rhs_labels, out_labels] = parse_einsum_expression(expression);
     contract(out, out_labels, lhs, lhs_labels, rhs, rhs_labels, alpha, add);
+  }
+
+  PyTensor einsum(const std::string& expression, const PyTensor& lhs, const PyTensor& rhs,
+                  py::object out = py::none(), double alpha = 1.0, bool add = false) const {
+    if(out.is_none()) {
+      auto out_tensor = tensor_from_einsum(expression, lhs, rhs);
+      allocate_one(out_tensor);
+      contract_einsum(out_tensor, lhs, rhs, expression, alpha, add);
+      return out_tensor;
+    }
+
+    auto& out_tensor = py::cast<PyTensor&>(out);
+    if(!out_tensor.is_allocated()) allocate_one(out_tensor);
+    contract_einsum(out_tensor, lhs, rhs, expression, alpha, add);
+    return out_tensor;
+  }
+
+  PyTensor zeros(py::object shape, py::object tile = py::none()) const {
+    auto tensor = tensor_from_shape(shape, tile);
+    allocate_one(tensor);
+    fill(tensor, 0.0);
+    return tensor;
+  }
+
+  PyTensor ones(py::object shape, py::object tile = py::none()) const {
+    auto tensor = tensor_from_shape(shape, tile);
+    allocate_one(tensor);
+    fill(tensor, 1.0);
+    return tensor;
   }
 
   py::array_t<double> to_numpy(const PyTensor& tensor) const {
@@ -429,6 +522,80 @@ public:
   }
 
 private:
+  void allocate_one(PyTensor& tensor) const {
+    tamm::Scheduler sch{ec()};
+    sch.allocate(tensor.value()).execute();
+  }
+
+  PyTensor tensor_from_shape(py::handle shape_obj, py::handle tile_obj) const {
+    if(py::isinstance<py::sequence>(shape_obj)) {
+      auto seq = py::reinterpret_borrow<py::sequence>(shape_obj);
+      if(py::len(seq) > 0 && py::isinstance<PyTiledIndexSpace>(seq[0])) {
+        if(!tile_obj.is_none()) {
+          throw std::invalid_argument(
+            "tile must be None when shape is a list of TiledIndexSpace objects.");
+        }
+        std::vector<tamm::TiledIndexSpace> tis_vec;
+        tis_vec.reserve(py::len(seq));
+        for(const auto& item: seq) {
+          const auto& tis = py::cast<PyTiledIndexSpace&>(item);
+          tis_vec.push_back(tis.value());
+        }
+        return PyTensor{tis_vec};
+      }
+    }
+
+    const auto shape = parse_shape(shape_obj);
+    const auto tiles = parse_tiles(tile_obj, shape);
+
+    std::vector<tamm::TiledIndexSpace> tis_vec;
+    tis_vec.reserve(shape.size());
+    for(std::size_t i = 0; i < shape.size(); ++i) {
+      auto tis = tiled_index_space(shape[i], tiles[i]);
+      tis_vec.push_back(tis.value());
+    }
+    return PyTensor{tis_vec};
+  }
+
+  PyTensor tensor_from_einsum(const std::string& expression, const PyTensor& lhs,
+                              const PyTensor& rhs) const {
+    auto [lhs_labels, rhs_labels, out_labels] = parse_einsum_expression(expression);
+    const auto& lhs_spaces                    = lhs.value().tiled_index_spaces();
+    const auto& rhs_spaces                    = rhs.value().tiled_index_spaces();
+
+    if(lhs_labels.size() != lhs_spaces.size() || rhs_labels.size() != rhs_spaces.size()) {
+      throw std::invalid_argument("Einsum expression rank does not match operand rank.");
+    }
+
+    std::unordered_map<std::string, tamm::TiledIndexSpace> label_to_space;
+    for(std::size_t i = 0; i < lhs_labels.size(); ++i) {
+      label_to_space.emplace(lhs_labels[i], lhs_spaces[i]);
+    }
+
+    for(std::size_t i = 0; i < rhs_labels.size(); ++i) {
+      const auto& label = rhs_labels[i];
+      auto        it    = label_to_space.find(label);
+      if(it == label_to_space.end()) {
+        label_to_space.emplace(label, rhs_spaces[i]);
+        continue;
+      }
+      if(!same_index_space(it->second, rhs_spaces[i])) {
+        throw std::invalid_argument("Mismatched tiled index space for label '" + label + "'.");
+      }
+    }
+
+    std::vector<tamm::TiledIndexSpace> out_spaces;
+    out_spaces.reserve(out_labels.size());
+    for(const auto& label: out_labels) {
+      auto it = label_to_space.find(label);
+      if(it == label_to_space.end()) {
+        throw std::invalid_argument("Output label '" + label + "' missing from inputs.");
+      }
+      out_spaces.push_back(it->second);
+    }
+    return PyTensor{out_spaces};
+  }
+
   tamm::ExecutionContext& ec() const {
     if(closed_ || ec_ == nullptr) throw std::runtime_error("Context is closed.");
     return *ec_;
@@ -468,7 +635,7 @@ PYBIND11_MODULE(pytamm, m) {
   py::class_<PyTammContext>(m, "Context")
     .def(py::init<tamm::DistributionKind, tamm::MemoryManagerKind, bool>(),
          py::arg("distribution")  = tamm::DistributionKind::nw,
-         py::arg("memory_manager") = tamm::MemoryManagerKind::local,
+         py::arg("memory_manager") = tamm::MemoryManagerKind::ga,
          py::arg("finalize_mpi")  = true)
     .def("__enter__", [](PyTammContext& self) -> PyTammContext& { return self; },
          py::return_value_policy::reference_internal)
@@ -493,6 +660,22 @@ PYBIND11_MODULE(pytamm, m) {
     .def("contract_einsum", &PyTammContext::contract_einsum, py::arg("out"), py::arg("lhs"),
          py::arg("rhs"), py::arg("expression"), py::arg("alpha") = 1.0,
          py::arg("add") = false)
+    .def("einsum", &PyTammContext::einsum, py::arg("expression"), py::arg("lhs"),
+         py::arg("rhs"), py::arg("out") = py::none(), py::arg("alpha") = 1.0,
+         py::arg("add") = false)
+    .def("zeros", &PyTammContext::zeros, py::arg("shape"), py::arg("tile") = py::none())
+    .def("ones", &PyTammContext::ones, py::arg("shape"), py::arg("tile") = py::none())
     .def("to_numpy", &PyTammContext::to_numpy, py::arg("tensor"))
     .def("from_numpy", &PyTammContext::from_numpy, py::arg("tensor"), py::arg("array"));
+
+  // Alias to mirror numpy-like import/use style.
+  m.attr("TammContext") = m.attr("Context");
+
+  m.def("zeros", [](PyTammContext& ctx, py::object shape, py::object tile) {
+    return ctx.zeros(shape, tile);
+  }, py::arg("ctx"), py::arg("shape"), py::arg("tile") = py::none());
+
+  m.def("ones", [](PyTammContext& ctx, py::object shape, py::object tile) {
+    return ctx.ones(shape, tile);
+  }, py::arg("ctx"), py::arg("shape"), py::arg("tile") = py::none());
 }
