@@ -205,10 +205,10 @@ bool transpose_inputs(ExecutionHW hw, gpuStream_t& thandle, T2* ainter_buf,
     copy_data_to_gpu(hw, thandle, abuf, asize, ainter_dev_in.data(), bbuf, bsize,
                      binter_dev_in.data());
 
-    assign_gpu<T2>(thandle, ainter_buf_dev, ainter_dims, ainter_labels, T2{1},
-                   ainter_dev_in.data(), adims, alabels, true);
-    assign_gpu<T3>(thandle, binter_buf_dev, binter_dims, binter_labels, T3{1},
-                   binter_dev_in.data(), bdims, blabels, true);
+    assign_gpu<T2>(thandle, ainter_buf_dev, ainter_dims, ainter_labels, T2{1}, ainter_dev_in.data(),
+                   adims, alabels, true);
+    assign_gpu<T3>(thandle, binter_buf_dev, binter_dims, binter_labels, T3{1}, binter_dev_in.data(),
+                   bdims, blabels, true);
 
     // The H2D copies above and librettExecute() inside assign_gpu() are enqueued on
     // `thandle` and return immediately on CUDA/HIP, but returning these staging buffers to
@@ -376,9 +376,8 @@ void block_multiply(
 
   bool gpu_trans = false;
 
-  std::span<T1> cinter_span =
-    allocate_host_buffer<T1>(hw, static_cast<size_t>(csize.value()));
-  T1* cinter_buf = cinter_span.data();
+  std::span<T1> cinter_span = allocate_host_buffer<T1>(hw, static_cast<size_t>(csize.value()));
+  T1*           cinter_buf  = cinter_span.data();
   if(hw == ExecutionHW::CPU) {
     // if(csize.value() != 1)
     std::memset(static_cast<void*>(cinter_span.data()), 0, cinter_span.size_bytes());
@@ -432,8 +431,7 @@ void block_multiply(
         // `*_owned` holds the pool allocation and is never reassigned, so it can always be
         // returned to the pool with the size it was allocated with. `bbuf_complex` is only a
         // view, which may be re-pointed at `binter_buf` on the CPU path.
-        std::span<T1> bbuf_complex_span =
-          allocate_host_buffer<T1>(ExecutionHW::CPU, bsize.value());
+        std::span<T1> bbuf_complex_span = allocate_host_buffer<T1>(ExecutionHW::CPU, bsize.value());
         std::copy(bbufp, bbufp + bsize.value(), bbuf_complex_span.data());
         T1* bbuf_complex = bbuf_complex_span.data();
 
@@ -516,8 +514,7 @@ void block_multiply(
       if constexpr(internal::is_complex_v<T1>) {
         // `*_owned` holds the pool allocation and is never reassigned; `abuf_complex` is a view
         // that may be re-pointed at `ainter_buf` on the CPU path.
-        std::span<T1> abuf_complex_span =
-          allocate_host_buffer<T1>(ExecutionHW::CPU, asize.value());
+        std::span<T1> abuf_complex_span = allocate_host_buffer<T1>(ExecutionHW::CPU, asize.value());
         std::copy(abufp, abufp + asize.value(), abuf_complex_span.data());
         T1* abuf_complex = abuf_complex_span.data();
 
@@ -606,8 +603,7 @@ void block_multiply(
       std::span<T2> cbuf_tmp_real_dev_span = allocate_device_buffer<T2>(hw, csize.value());
       T2*           cbuf_tmp_real_dev      = cbuf_tmp_real_dev_span.data();
 #if defined(USE_CUDA) || defined(USE_HIP) || defined(USE_DPCPP)
-      gpuMemsetAsync(cbuf_tmp_real_dev, csize.value() * sizeof(T2),
-                     thandle);
+      gpuMemsetAsync(cbuf_tmp_real_dev, csize.value() * sizeof(T2), thandle);
 #endif
 
       gpu_trans = transpose_inputs(hw, thandle, ainter_buf, ainter_dims, ainter_labels, abuf,

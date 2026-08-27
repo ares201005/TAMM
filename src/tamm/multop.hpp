@@ -399,10 +399,8 @@ public:
             cbuf_dev_ptr      = cbuf_dev_span.data();
             cbuf_tmp_dev_ptr  = cbuf_tmp_dev_span.data();
 
-            gpuMemsetAsync(cbuf_dev_ptr, csize * sizeof(TensorElType1),
-                           thandle);
-            gpuMemsetAsync(cbuf_tmp_dev_ptr,
-                           csize * sizeof(TensorElType1), thandle);
+            gpuMemsetAsync(cbuf_dev_ptr, csize * sizeof(TensorElType1), thandle);
+            gpuMemsetAsync(cbuf_tmp_dev_ptr, csize * sizeof(TensorElType1), thandle);
           }
 #endif
           kernels::block_multiply<T, TensorElType1, TensorElType2, TensorElType3>(
@@ -565,7 +563,7 @@ public:
       if(!ctensor.is_non_zero(translated_cblockid)) return;
 
       // compute block size and allocate buffers for cbuf
-      const size_t   csize = ctensor.block_size(translated_cblockid);
+      const size_t             csize     = ctensor.block_size(translated_cblockid);
       std::span<TensorElType1> cbuf_span = memHostPool.allocate_span<TensorElType1>(csize);
       TensorElType1*           cbuf      = cbuf_span.data();
       std::memset(static_cast<void*>(cbuf_span.data()), 0, cbuf_span.size_bytes());
@@ -602,15 +600,12 @@ public:
         std::span<TensorElType1> cbuf_dev_span;
         std::span<TensorElType1> cbuf_tmp_dev_span;
         if(hw == ExecutionHW::GPU) {
-          cbuf_dev_ptr =
-            (cbuf_dev_span = memDevicePool.allocate_span<TensorElType1>(csize)).data();
+          cbuf_dev_ptr = (cbuf_dev_span = memDevicePool.allocate_span<TensorElType1>(csize)).data();
           cbuf_tmp_dev_ptr =
             (cbuf_tmp_dev_span = memDevicePool.allocate_span<TensorElType1>(csize)).data();
 
-          gpuMemsetAsync(cbuf_dev_ptr, csize * sizeof(TensorElType1),
-                         thandle);
-          gpuMemsetAsync(cbuf_tmp_dev_ptr, csize * sizeof(TensorElType1),
-                         thandle);
+          gpuMemsetAsync(cbuf_dev_ptr, csize * sizeof(TensorElType1), thandle);
+          gpuMemsetAsync(cbuf_tmp_dev_ptr, csize * sizeof(TensorElType1), thandle);
         }
 #endif
 
@@ -652,8 +647,8 @@ public:
           const size_t asize = atensor.block_size(translated_ablockid);
           const size_t bsize = btensor.block_size(translated_bblockid);
 
-          TensorElType2* abuf{nullptr};
-          TensorElType3* bbuf{nullptr};
+          TensorElType2*           abuf{nullptr};
+          TensorElType3*           bbuf{nullptr};
           std::span<TensorElType2> abuf_span = memHostPool.allocate_span<TensorElType2>(asize);
           std::span<TensorElType3> bbuf_span = memHostPool.allocate_span<TensorElType3>(bsize);
           abuf                               = abuf_span.data();
@@ -731,7 +726,7 @@ public:
 #if defined(USE_CUDA) || defined(USE_HIP) || defined(USE_DPCPP)
           // copy to host
           if(hw == ExecutionHW::GPU) {
-            TimerGuard     tg_bc{&oprof.multOpBCTime};
+            TimerGuard               tg_bc{&oprof.multOpBCTime};
             std::span<TensorElType1> cbuf_tmp_span =
               memHostPool.allocate_span<TensorElType1>(csize);
             TensorElType1* cbuf_tmp = cbuf_tmp_span.data();

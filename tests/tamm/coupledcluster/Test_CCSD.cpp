@@ -364,10 +364,8 @@ void ccsd_t2_cs(Scheduler& sch, const TiledIndexSpace& MO, const TiledIndexSpace
       cbuf_tmp_dev_ptr =
         (cbuf_tmp_dev_span = memDevicePool.allocate_span<TensorElType1>(csize)).data();
 
-      gpuMemsetAsync(cbuf_dev_ptr, csize * sizeof(TensorElType1),
-                     thandle);
-      gpuMemsetAsync(cbuf_tmp_dev_ptr, csize * sizeof(TensorElType1),
-                     thandle);
+      gpuMemsetAsync(cbuf_dev_ptr, csize * sizeof(TensorElType1), thandle);
+      gpuMemsetAsync(cbuf_tmp_dev_ptr, csize * sizeof(TensorElType1), thandle);
     }
 #endif
 
@@ -462,8 +460,8 @@ void ccsd_t2_cs(Scheduler& sch, const TiledIndexSpace& MO, const TiledIndexSpace
 #if(defined(USE_CUDA) || defined(USE_HIP) || defined(USE_DPCPP))
       // copy to host
       if(hw == ExecutionHW::GPU) {
-        TimerGuard     tg_bc{&oprof.multOpBCTime};
-        TensorElType1* cbuf_tmp{nullptr};
+        TimerGuard               tg_bc{&oprof.multOpBCTime};
+        TensorElType1*           cbuf_tmp{nullptr};
         std::span<TensorElType1> cbuf_tmp_span = memHostPool.allocate_span<TensorElType1>(csize);
         cbuf_tmp                               = cbuf_tmp_span.data();
         std::memset(cbuf_tmp, 0, csize * sizeof(TensorElType1));

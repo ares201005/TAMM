@@ -109,9 +109,7 @@ public:
     upstream_mr_{[upstream_mr]() {
       // NOTE: these were previously discarded temporaries (`std::logic_error(...)` with no
       // `throw`), so neither check had any effect. They are now actually enforced.
-      if(upstream_mr == nullptr) {
-        throw std::logic_error("Unexpected null upstream pointer.");
-      }
+      if(upstream_mr == nullptr) { throw std::logic_error("Unexpected null upstream pointer."); }
       return upstream_mr;
     }()} {
     // Round down rather than reject: callers derive the pool size from a runtime
@@ -246,8 +244,8 @@ protected:
     }
     else {
       std::ostringstream os;
-      os << "[TAMM ERROR] RMM initialize_pool() failed to reserve "
-         << maximum_size << " B from the upstream resource.\n"
+      os << "[TAMM ERROR] RMM initialize_pool() failed to reserve " << maximum_size
+         << " B from the upstream resource.\n"
          << "  The upstream allocation was rejected -- typically too many processes per node,\n"
          << "  or another allocator (e.g. GA) already holds the memory.\n"
          << "  Lower TAMM_GPU_POOL / TAMM_CPU_POOL, or reduce ranks per node.\n"
@@ -408,7 +406,6 @@ public:
   }
 
 protected:
-
   /**
    * @brief Free all memory allocated from the upstream memory_resource.
    *

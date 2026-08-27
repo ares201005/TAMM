@@ -27,11 +27,11 @@
 #include <tamm/mr/new_delete_resource.hpp>
 #include <tamm/mr/pool_memory_resource.hpp>
 
+#include <complex>
 #include <cstddef>
 #include <cstdint>
-#include <limits>
-#include <complex>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <set>
 #include <thread>
@@ -312,7 +312,7 @@ TEST_CASE("MemoryPool: indices stay consistent under interleaved alloc/free") {
   auto                  pool  = make_pool(kPool);
 
   std::vector<std::pair<std::span<char>, std::size_t>> live;
-  std::size_t                                live_bytes = 0;
+  std::size_t                                          live_bytes = 0;
 
   // Deterministic pseudo-random interleaving: allocations of many different sizes,
   // freed out of order, so blocks are repeatedly split and coalesced.
@@ -325,8 +325,7 @@ TEST_CASE("MemoryPool: indices stay consistent under interleaved alloc/free") {
   constexpr std::size_t kLiveCap = kPool / 8;
 
   for(int i = 0; i < 3000; ++i) {
-    bool const do_alloc =
-      live.empty() || (live_bytes < kLiveCap && ((next() >> 16) % 3 != 0));
+    bool const do_alloc = live.empty() || (live_bytes < kLiveCap && ((next() >> 16) % 3 != 0));
 
     if(do_alloc) {
       std::size_t const sz = 64 + ((next() >> 16) % 4096);
@@ -336,9 +335,9 @@ TEST_CASE("MemoryPool: indices stay consistent under interleaved alloc/free") {
       live_bytes += aligned(sz);
     }
     else {
-      std::size_t const idx    = (next() >> 16) % live.size();
-      auto const [ptr, sz]     = live[idx];
-      live[idx]                = live.back();
+      std::size_t const idx = (next() >> 16) % live.size();
+      auto const [ptr, sz]  = live[idx];
+      live[idx]             = live.back();
       live.pop_back();
       pool->deallocate(ptr);
       live_bytes -= aligned(sz);
@@ -484,11 +483,13 @@ TEST_CASE("MemoryPool: span round-trip under churn returns to baseline") {
 
   std::vector<std::span<double>> live;
   std::size_t                    seed = 999;
-  auto                           next = [&seed]() { return seed = seed * 6364136223846793005ull + 1; };
+  auto next = [&seed]() { return seed = seed * 6364136223846793005ull + 1; };
 
   for(int i = 0; i < 2000; ++i) {
     if(live.empty() || ((next() >> 33) % 3)) {
-      if(pool->free_bytes() > (kPool / 4)) { live.push_back(pool->allocate_span<double>(1 + ((next() >> 33) % 256))); }
+      if(pool->free_bytes() > (kPool / 4)) {
+        live.push_back(pool->allocate_span<double>(1 + ((next() >> 33) % 256)));
+      }
     }
     else {
       std::size_t const k = (next() >> 33) % live.size();
@@ -502,7 +503,6 @@ TEST_CASE("MemoryPool: span round-trip under churn returns to baseline") {
   CHECK(pool->free_bytes() == base);
   CHECK(pool->free_summary().first == kPool);
 }
-
 
 // ---------------------------------------------------------------------------
 // GEMM batch/reduction stride arithmetic (kernels/multiply.hpp gemm_wrapper).
@@ -551,8 +551,11 @@ struct GemmStridesInt {
   }
 
   GemmStridesInt(int B, int M, int N, int K):
-    cbatch_ld(wrap_mul(M, N)), abatch_ld(wrap_mul(M, K)), bbatch_ld(wrap_mul(K, N)),
-    areduce_ld(wrap_mul(B, abatch_ld)), breduce_ld(wrap_mul(B, bbatch_ld)) {}
+    cbatch_ld(wrap_mul(M, N)),
+    abatch_ld(wrap_mul(M, K)),
+    bbatch_ld(wrap_mul(K, N)),
+    areduce_ld(wrap_mul(B, abatch_ld)),
+    breduce_ld(wrap_mul(B, bbatch_ld)) {}
 };
 } // namespace
 
@@ -610,7 +613,10 @@ TEST_CASE("gemm strides: a single stride above INT_MAX is exact") {
 
 TEST_CASE("gemm strides: shapes that already worked are unchanged") {
   // Regression guard: the widening must not perturb any case that was already correct.
-  struct Shape { int B, M, N, K; std::int64_t abatch, bbatch, areduce; };
+  struct Shape {
+    int          B, M, N, K;
+    std::int64_t abatch, bbatch, areduce;
+  };
   constexpr Shape shapes[] = {
     {1, 1, 1, 1, 1LL, 1LL, 1LL},
     {1, 512, 512, 512, 262144LL, 262144LL, 262144LL},

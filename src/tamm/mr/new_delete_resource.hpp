@@ -89,16 +89,15 @@ private:
                      std::size_t alignment = rmm::detail::RMM_ALLOCATION_ALIGNMENT) override {
 #if defined(__APPLE__) || defined(TAMM_DISABLE_LIBNUMA)
     rmm::detail::aligned_deallocate(
-      ptr, bytes, alignment, [](void* original, std::size_t /*padded*/) {
-        ::operator delete(original);
-      });
+      ptr, bytes, alignment,
+      [](void* original, std::size_t /*padded*/) { ::operator delete(original); });
 #else
     // numa_free() unmaps exactly the length it is given, so it must receive the PADDED
     // size that aligned_allocate actually requested -- not the caller's `bytes`. Passing
     // `bytes` left `alignment + sizeof(ptrdiff_t)` bytes mapped on every upstream block.
-    rmm::detail::aligned_deallocate(
-      ptr, bytes, alignment,
-      [](void* original, std::size_t padded) { numa_free(original, padded); });
+    rmm::detail::aligned_deallocate(ptr, bytes, alignment, [](void* original, std::size_t padded) {
+      numa_free(original, padded);
+    });
 #endif
   }
 };

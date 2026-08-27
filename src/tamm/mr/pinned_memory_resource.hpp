@@ -99,10 +99,10 @@ private:
     if(nullptr == ptr) { return; }
     // dealloc callable is binary: (original pointer, padded size). These pinned-host
     // deallocators are size-agnostic, so the padded size is unused here.
-    rmm::detail::aligned_deallocate(
-      ptr, bytes, alignment, [](void* original, std::size_t /*padded*/) {
+    rmm::detail::aligned_deallocate(ptr, bytes, alignment,
+                                    [](void* original, std::size_t /*padded*/) {
 #if defined(USE_CUDA)
-        cudaFreeHost(original);
+                                      cudaFreeHost(original);
 #elif defined(USE_HIP)
         hipFreeHost(original);
 #elif defined(USE_DPCPP)
@@ -110,7 +110,7 @@ private:
 #else
         (void) original;
 #endif
-      });
+                                    });
   }
 };
 } // namespace tamm::rmm::mr
